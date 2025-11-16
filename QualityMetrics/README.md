@@ -21,7 +21,7 @@ The **ViSQOL** metric was computed using the official MATLAB implementation avai
 
 ### MSE, SNR, PESQ and STOI implementation
 
-The metrics **MSE**, **PESQ**, and **STOI** are implemented in the Python script [`quality_metrics.py`](./quality_metrics.py):contentReference[oaicite:0]{index=0}.  
+The metrics **MSE**, **PESQ**, and **STOI** are implemented in the Python script [`quality_metrics.py`](./quality_metrics.py).  
 This script automatically compares pairs of audio files (original vs. watermarked) and saves the results in an Excel file.
 
 ### Usage
