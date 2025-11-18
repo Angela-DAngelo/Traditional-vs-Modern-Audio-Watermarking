@@ -59,7 +59,7 @@ The repository is organized into four main directories:
 - **Dataset/**: audio datasets used for benchmarking and evaluation (speech and music).  
 - **Systems/**: implementations of both classical and AI-based watermarking systems.   
 - **QualityMetrics/**: evaluation tools and scripts for measuring audio quality and imperceptibility (e.g., SNR, PESQ, STOI, ViSQOL).
-- **Results/**: outputs and plots
+- **Results/**: sample outputs 
 
 ```text
 AudioWatermarking_AI_vs_Traditional/
