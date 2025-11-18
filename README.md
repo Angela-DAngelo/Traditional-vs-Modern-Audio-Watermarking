@@ -99,11 +99,6 @@ XXXXXXXXXXXXXX
 
 ---
 
-## ⚖️ License
-XXXXXXX — see `LICENSE` file for details.
-
----
-
 ## 📩 Contacts
 Angela D’Angelo — Universitas Mercatorum, Rome, Italy  
 📧 angela.dangelo@unimercatorum.it  
