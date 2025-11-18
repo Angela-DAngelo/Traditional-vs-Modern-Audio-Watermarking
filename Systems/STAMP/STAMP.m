@@ -1,0 +1,179 @@
+%==========================================================================
+%  STAMP: Spectral Transform-domain Audio Marking with Perceptual Model
+%
+%  Description:
+%  ------------------------------------------------------------------------
+%  This script implements the traditional signal-processing watermarking
+%  system described in the paper:
+%
+%      "Beyond the Hype: A Comparison Between Traditional Model-Driven 
+%       and AI-Based Audio Watermarking"
+%
+%  STAMP is the main function of the system. It processes all audio files 
+%  contained in the input directory 'input_audio', performing both 
+%  watermark embedding and extraction.
+%
+%  Specifically:
+%    1. Each input audio file is watermarked by the function Mark_audio
+%       and saved in the folder 'watermarked'.
+%    2. The watermark is then detected and decoded from the watermarked 
+%       files by the function Demark_audio.
+%    3. Two Excel files are generated:
+%         - 'results_input_audio.xlsx' : contains the number of bits 
+%           correctly decoded for each processed audio file (bit recovery
+%           accuracy);
+%         - 'watermarks_input_audio.xlsx' : contains the random watermark
+%           sequences embedded during encoding.
+%
+%  Author: Angela D'Angelo
+%  Contact: angela.dangelo@unimercatorum.it
+%  Date: November, 17th 2025
+%  Version: 1.0
+%
+%  Notes:
+%  ------------------------------------------------------------------------
+%  - The system follows a post-generation watermarking paradigm and serves
+%    as the reference traditional implementation for comparison with
+%    AI-based watermarking methods.
+%  - Ensure that the required subfunctions (Mark_audio, Demark_audio, etc.)
+%    are included in the MATLAB path before running this script.
+%
+%  Please cite this paper if you use this code:
+%  ------------------------------------------------------------------------
+%      Angela D'Angelo, Andrea Abrardo, Roberto Caldelli, Mauro Barni,
+%      "Beyond the Hype: A Comparison Between Traditional Model-Driven 
+%       and AI-Based Audio Watermarking", IEEE Access, 2025.
+%==========================================================================
+
+clear all;
+clc;
+mainPath = fileparts(mfilename('fullpath'));
+addpath(genpath(mainPath));
+
+
+%===========================PARAMETERS=====================================
+% DATASET------------------------------------------------------------------
+dataset_name='input_audio';
+dataset_path = fullfile('',dataset_name);
+% SET-PARAM----------------------------------------------------------------
+% many other parameters can be adjusted in set_param.m
+set_param;
+Fs = DATI_GEN.Fs;
+DELT = 1;     % Shift in seconds to skip the initial silence period
+Tmarchio = 4; % Duration of the watermark in seconds
+Ns1 = DELT*DATI_GEN.Fs+1;
+Ns2 = (Tmarchio+DELT)*DATI_GEN.Fs;
+% PROFILE------------------------------------------------------------------
+% case 1: 16 bits low energy, less robust (paper: STAMP v.2)
+% case 4: 16 bits more energy, more robust (paper: STAMP v.1)
+% case 3: select desidered bits number in set_param.m
+% NOTE: when you change the profile, remove the files in 'MARCHIATI' folder
+prof = 4;
+Dati_code.K = MSSDH.Pi(prof);
+%==========================================================================
+
+% Initialize the Excel files (to save the results)
+outputExcel = ['results_' dataset_name '.xlsx'];
+mark = ['watermark_' dataset_name '.xlsx'];
+header1 = {'file name', 'correct bits','decoded message'};
+header2 = {'file name', 'watermark'};
+writecell(header1, outputExcel, 'Sheet', 1, 'Range', 'A1');
+writecell(header2, mark, 'Sheet', 1, 'Range', 'A1');
+
+
+% Process all files in the directory
+file_list = dir(fullfile(dataset_path, '*.wav')); 
+
+file_names = {};
+decoded_strings = {};
+correct_bits = {};
+watermark = {};
+
+for k = 1:length(file_list)
+    file_name = file_list(k).name;
+    [ ~, name, ext] = fileparts(file_name);
+ 
+fprintf('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n');
+fprintf('Processing: %s\n', file_name);
+
+%  ----------------------EMBEDDING-----------------------------------------
+
+% Generate a very long sequence of random numbers, where the first 16 bits
+% represent the watermark to be embedded in the audio
+MARCHIO = randi([0 1], 1, 4296);
+[output_sound,interl,interl2,Nv] = Mark_audio(MARCHIO,dataset_path,file_name,Tmarchio,DELT,prof,MSSDH,DATI_GEN,Dati_code);
+
+fprintf('Bit watermark: %d | Bit CRC: %d | Bit tail: %d | Total bits: %d\n', ...
+    Dati_code.K, 0, Dati_code.constlen_p - 1, Nv);
+
+% Compute SNR
+[sound_stereo,Fs] = audioread(fullfile(dataset_path,file_name));
+info = audioinfo(fullfile(dataset_path,file_name));
+NBITS = info.BitsPerSample;
+Ns1 = DELT*Fs+1;
+Ns2 = (Tmarchio+DELT)*Fs;
+input_sound = sound_stereo(Ns1:Ns2,:);
+noise = input_sound - output_sound.vals;
+snr_value = 10 * log10(sum(sound_stereo.^2) / sum(noise.^2));
+fprintf('SNR: %f dB\n', snr_value);
+
+
+% Save the watermarked audio and the corresponding watermark
+[ ~, name, ext] = fileparts(file_name);
+marked_file_name = sprintf('%s_D%d_T%d%s', name, DELT, Tmarchio, ext);
+audiowrite(fullfile('watermarked/', marked_file_name), output_sound(1).vals,44100);
+newRow2 = {file_name, MARCHIO(1:Dati_code.K)};
+writecell(newRow2, mark, 'Sheet', 1, 'Range', sprintf('A%d', k+1));
+
+% CASE 1: no attacks ------------------------------------------------------
+% Decode the watermarked audio file directly from the output of the 
+% Mark_audio function (without applying any perturbations)
+output_sound_all_n = output_sound(1).vals;
+
+% % CASE 2: attacks -------------------------------------------------------
+% % Decode the watermarked audio file after applying the perturbations 
+% % described in the paper and implemented in the Python function 
+% % apply_audio_perturbations.py.
+% % The watermarked and attacked audio files are located in the folder 
+% % 'dataset_name_attacked'. 
+% % For each attacked audio file, the corresponding original audio is 
+% % retrieved (based on its name) in order to recover the watermark 
+% % embedded during the encoding phase and to compare the inserted 
+% % watermark with the extracted one.
+
+% audioFiles = dir(fullfile('attacked/',[dataset_name '_attacked'], '*.wav'));
+% for k = 1:length(audioFiles)
+% 
+%     audioName = audioFiles(k).name;    
+%     % Check if the reference audio exists (the original audio);
+%     % it will be necessary to compare the inserted watermark with the extracted one
+%     if contains(audioName, name)  
+%         [sound_stereo,Fs] = audioread(fullfile('attacked/',[dataset_name '_attacked'], audioName));
+%         fprintf('Processing: %s\n', audioName);
+% 
+% output_sound_all_n =sound_stereo;
+
+%  -----------------------DECODING-----------------------------------------
+
+[input_bits_est] = Demark_audio(output_sound_all_n,1000,prof,MSSDH,DATI_GEN,Dati_code,interl,interl2,Nv);
+
+len = length(input_bits_est);
+marchio_short = MARCHIO(1:length(input_bits_est));
+uguali = marchio_short == input_bits_est;
+conteggio_uguali = sum(uguali);
+
+fprintf('Number correctly of decoded bits: %d\n',conteggio_uguali);
+fprintf('***********************************************************\n');
+
+% Save results
+file_names{end+1} = file_name;
+decoded_strings{end+1} = input_bits_est;
+correct_bits{end+1} = conteggio_uguali;
+newRow = {file_name, conteggio_uguali, input_bits_est};
+writecell(newRow, outputExcel, 'Sheet', 1, 'Range', sprintf('A%d', k+1));
+
+    end
+
+%end
+%end
+

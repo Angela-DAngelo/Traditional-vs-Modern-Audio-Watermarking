@@ -1,0 +1,81 @@
+%clear workspace and figures
+clc;clear all;close all;
+%variable declaration
+N = 512;
+hop = 1;
+n = 0:N-1;
+max_value=0;
+%read wav into local storage buffer
+pcm = wavread('MMI601_castanets_stereo.wav');
+%separate channels into left/right vectors
+pcm_left = pcm(:,1);
+pcm_right = pcm(:,2);
+%calculate number of samples and frames
+num_samples = length(pcm);
+num_frames = num_samples/N;
+%allocate memory for output matrix
+output = zeros([num_samples,2]);
+%create window function and transpose
+w = sin((pi/N)*(n+1/2));
+w = w';
+while hop <= num_samples-(N/2)    
+  %get frame to window 
+  cur_frame_l = pcm_left(hop:hop+N-1);
+  cur_frame_r = pcm_right(hop:hop+N-1);
+  %apply window
+  left = cur_frame_l.*w;
+  right = cur_frame_r.*w;
+  %take fft
+  fft_left = fft(left);
+  fft_right = fft(right);
+  %calculate global masking curves
+  gmask_l=psychmodel(fft_left);
+  gmask_r=psychmodel(fft_right);
+  %take mdct
+  mdct_left = fast_mdct(left);
+    mdct_right = fast_mdct(right);
+  %take imdct
+  imdct_left = fast_imdct(mdct_left);
+  imdct_right = fast_imdct(mdct_right);
+  %take fft
+  ifft_left = ifft(fft_left);
+  ifft_right = ifft(fft_right);
+  %reapply window
+  left = ifft_left.*w;
+  right = ifft_right.*w;
+  %overlap and add left/right and update output
+  output(hop:hop+N-1,1) = output(hop:hop+N-1,1) + left;
+  output(hop:hop+N-1,2) = output(hop:hop+N-1,2) + right;
+  %increment hop pointer
+  hop = hop+N/2;
+end
+%generate plots
+close all;
+subplot(3,2,1);
+plot(1:num_samples,pcm(:,1));
+axis([0 3.2e5 -1 1]);
+title('Original Left Channel');
+subplot(3,2,2);
+plot(1:num_samples,pcm(:,2));
+axis([0 3.2e5 -1 1])
+title('Original Right Channel');
+subplot(3,2,3);
+plot(1:num_samples,output(:,1));
+axis([0 3.2e5 -1 1]);
+title('Reconstructed Left Channel');
+subplot(3,2,4);
+plot(1:num_samples,output(:,2));
+axis([0 3.2e5 -1 1]);
+title('Reconstructed Right Channel');
+%compute difference between orig & reconstructed
+diff = output-pcm;
+subplot(3,2,5);
+plot(1:num_samples,diff(:,1));
+axis([0 3.2e5 -1e-13 1e-13]);
+title('Difference Left Channel');
+subplot(3,2,6);
+plot(1:num_samples,diff(:,2));
+axis([0 3.2e5 -1e-13 1e-13]);
+title('Difference Right Channel');
+%write output to wav file
+wavwrite(output,44100,'barebones.wav');

@@ -1,0 +1,116 @@
+% GENERIC------------------------------------------------------------------
+DATI_GEN.N = 1024; 
+DATI_GEN.Fs = 44100; % sample rate
+DATI_GEN.freqs_all = [0:DATI_GEN.N/2-1]*DATI_GEN.Fs/DATI_GEN.N; 
+DATI_GEN.delta = 64; %Parametro del sincronismo
+DATI_GEN.lambda = 16; %Sincronismo fine
+DATI_GEN.Ns1 = 1;%2e6+1;
+DATI_GEN.Ns2 = 2e6;%4e6;
+DATI_GEN.Offset_S = 0; 
+DATI_GEN.SOGLIA_PM = 0*DATI_GEN.freqs_all;
+DATI_GEN.SOGLIA_PM(DATI_GEN.freqs_all < 1000) = 0;
+
+% CHANNEL ENCODER
+Dati_code.n = 2;
+Dati_code.k = 1;
+Dati_code.constlen_p = 8;
+Dati_code.minK = 28;
+Dati_code.punct_mat = [1;1];
+Dati_code.rc = size(Dati_code.punct_mat,2)/sum(sum(Dati_code.punct_mat));
+Dati_code.Pol_CRC = [1 1 0 0 0 1 1 0 0 1 1];
+Dati_code.codegen_p = [247 371];
+[codegen,constlen] = converti_codegen(Dati_code.codegen_p,Dati_code.constlen_p,Dati_code.k);
+Dati_code.t = poly2trellis(constlen,codegen);
+[trellis.next_out, trellis.next_state, trellis.next_bit, trellis.last_out, trellis.last_state, trellis.last_bit, trellis.n, trellis.k, trellis.nstates] = convert_trellis_new(Dati_code.t);
+Dati_code.trellis = trellis;
+
+% PARAMETERS FOR THE CONFIGURATION OF DIFFERENT PROFILES
+MSSDH.Ns = [16 26 40 30 30 20 64 64 64 26 16];
+MSSDH.Nf = [4 8 8 6 8 8 4 4 4 9 16];
+MSSDH.fmin = [1400 1400 1400 400 400 1400 1400 1400 1400 1400 1400];
+MSSDH.fmax = [2400 6400 6400 6400 6400 3800 2400 3400 4400 6400 6400];
+num_prof = length(MSSDH.Ns);
+MSSDH.Pi = zeros(1,num_prof);
+MSSDH.K = zeros(1,num_prof);
+MSSDH.H = zeros(1,num_prof);
+
+for profile = 1:num_prof
+
+    % Compute the indices of the frequency bins where to embed the watermark
+    ind_freqs_all = find(DATI_GEN.freqs_all >= MSSDH.fmin(profile) & DATI_GEN.freqs_all <= MSSDH.fmax(profile));
+    if MSSDH.Nf(profile) >= length(ind_freqs_all)
+        MSSDH.Nf(profile) = length(ind_freqs_all);
+    end;
+    ind_freqs_all = ind_freqs_all(1:floor(length(ind_freqs_all)/MSSDH.Nf(profile))*MSSDH.Nf(profile));    
+    MSSDH.K(profile) = length(ind_freqs_all)/MSSDH.Nf(profile); 
+    MSSDH.H(profile) = 1; 
+    MSSDH.Pi(profile) = 0; 
+    while abs(floor(MSSDH.H(profile)*MSSDH.K(profile)*Dati_code.rc) - MSSDH.H(profile)*MSSDH.K(profile)*Dati_code.rc) > 1e-10 | MSSDH.Pi(profile) <= Dati_code.minK
+        MSSDH.H(profile) = MSSDH.H(profile) + 1;
+        MSSDH.Pi(profile) = round(MSSDH.H(profile)*MSSDH.K(profile)*Dati_code.rc - (length(Dati_code.Pol_CRC)-1) - (Dati_code.constlen_p-1));
+    end;    
+    if MSSDH.Nf(profile) >= length(ind_freqs_all)
+        MSSDH.Nf(profile) = length(ind_freqs_all);
+    end;
+    MSSDH.ind_freqs_all(profile).vals = ind_freqs_all(1:floor(length(ind_freqs_all)/MSSDH.Nf(profile))*MSSDH.Nf(profile));
+    
+    Lspread = MSSDH.Nf(profile)*MSSDH.Ns(profile);
+    MAT_BASE = ones(2,Lspread);
+    [sortv indxsort] = sort(rand(1,Lspread));
+    MAT_BASE(1,indxsort(1:Lspread/2)) = -1;
+    MAT_BASE(2,:) = -MAT_BASE(1,:);
+    MSSDH.MAT_BASE(profile).vals = MAT_BASE;
+    [MAT_BASE] = calc_MAT_BASE(Lspread);
+    MSSDH.MAT_BASE_inf(profile).vals = MAT_BASE;
+
+end
+
+% case 1: 16 bits low energy, less robust (paper STAMP v.1)
+MSSDH.K(1) = 11;
+MSSDH.H(1) = 3;
+MSSDH.Pi(1) = 16;  
+Dati_code.K = MSSDH.Pi(1);
+
+% case 4: 16 bits more energy, more robust (paper STAMP v.2)
+MSSDH.K(4) = 11;
+MSSDH.H(4) = 3;
+MSSDH.Pi(4) = 16;  
+Dati_code.K = MSSDH.Pi(4);
+
+% case 3: select desidered bits number X
+X = 40;
+rc =  1/2;
+Tmarchio=4;
+
+
+Ns_freq   = MSSDH.Nf(3);
+Nslots    = MSSDH.Ns(3);
+Kmax      = floor(length(ind_freqs_all) / Ns_freq);     % capacità spettrale
+T         = Dati_code.constlen_p - 1;                   % tail bits (Viterbi)
+
+Hmax_time = floor((DATI_GEN.Fs*Tmarchio / (DATI_GEN.N/2)) / Nslots);
+
+% 1) H minimo che soddisfa X usando la piena capacità spettrale
+H = max(1, ceil((X + T) / (rc * Kmax)));
+H = min(H, Hmax_time);  % rispetta il vincolo temporale (se finito)
+% 2) Rifinitura di K in base all'H scelto (rispettando Kmax)
+K = min(Kmax, ceil((X + T) / (rc * H)));
+K = max(1, K);          % guardia minima
+% 3) Payload utile effettivo (senza CRC)
+Pi = floor(H * K * rc - T);
+
+% Se per qualche motivo Pi < X (p.es. per Hmax_time troppo stringente),
+% prova ad aumentare K fino a Kmax (best-effort) senza violare i vincoli.
+while (Pi < X) && (K < Kmax)
+    K  = K + 1;
+    Pi = floor(H * K * rc - T);
+end
+
+% Assegna ai parametri di sistema (profilo 3)
+MSSDH.K(3)  = K;     % gruppi spettrali per blocco
+MSSDH.H(3)  = H;     % ripetizioni/blocchi temporali
+MSSDH.Pi(3) = Pi;    % bit informativi effettivi (senza CRC)
+Dati_code.K = MSSDH.Pi(3);
+
+
+

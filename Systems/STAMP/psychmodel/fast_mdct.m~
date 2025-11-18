@@ -1,0 +1,10 @@
+function X_mdct = fast_mdct(xn)
+
+N=length(xn);
+no=(N/4)+0.5;
+k=0:N/2-1;
+pretwiddle=exp((-j*pi*(0:N-1)')/N);
+posttwiddle=exp(-j*2*pi*no*((0:N/2-1)'+0.5)/N);
+xprime=xn.*pretwiddle;
+Y=fft(xprime);
+X_mdct=real(Y(1:N/2).*posttwiddle);

@@ -1,0 +1,12 @@
+function[figout]=plotter(spl,tmasks,nmasks)
+
+f=linspace(0,22050,256);
+tq=(3.64.*((f./1000).^-0.8))-(6.5.*exp(-0.6.*(f./(1000-3.3)).^2))+(10e-3.*((f./1000).^4));
+bark=f2bark(f);
+hold off;
+figout=plot(bin2bark(1:256),spl(1:256));
+axis([0 25 -20 90]);
+hold on;
+figout=plot(bin2bark(tmasks(:,1)),tmasks(:,2),'x');
+figout=plot(bin2bark(nmasks(:,1)),nmasks(:,2),'o');
+figout=plot(bark,tq,'--');
