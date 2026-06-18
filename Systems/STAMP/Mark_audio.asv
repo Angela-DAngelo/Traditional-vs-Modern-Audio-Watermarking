@@ -1,0 +1,104 @@
+function[output_sound,interl,interl2,Nv] = Mark_audio(MARCHIO,folder,file_name,Tmarchio,DELT,prof,MSSDH,DATI_GEN,Dati_code)
+
+[sound_stereo,Fs] = audioread(fullfile('',folder,file_name));
+
+info = audioinfo(fullfile('',folder,file_name));
+NBITS = info.BitsPerSample;
+Ns1 = DELT*Fs+1;
+Ns2 = (Tmarchio+DELT)*Fs;
+input_sound = sound_stereo(Ns1:Ns2,:);
+
+Nslots = MSSDH.Ns(prof);
+Fmin = MSSDH.fmin(prof);
+Fmax = MSSDH.fmax(prof);
+Ns_freq = MSSDH.Nf(prof);
+ind_freqs_all = find(DATI_GEN.freqs_all >= Fmin & DATI_GEN.freqs_all <= Fmax);
+if Ns_freq >= length(ind_freqs_all)
+    Ns_freq = length(ind_freqs_all);
+end
+ind_freqs_all = ind_freqs_all(1:floor(length(ind_freqs_all)/Ns_freq)*Ns_freq);
+% Dati_code.L = MSSDH.K(prof);
+% Dati_code.m = MSSDH.H(prof);
+% Dati_code.K = MSSDH.Pi(prof);
+
+Dati_code.L = 11;
+Dati_code.m = 3;
+Dati_code.K = 16;
+
+
+[ ~, name, ext] = fileparts(file_name);
+
+Nome_file_data=sprintf('%s_D%d_T%d_PROFILO%d', name, DELT, Tmarchio, prof);
+Nome_file_psico = [file_name '_PSICO_OVERLAP_' '_STEREO_1'];
+Nome_file_data(Nome_file_data == '.') = '_';
+Nome_file_psico(Nome_file_psico == '.') = '_';
+Lspread = Ns_freq*Nslots; 
+
+% Creation of the spreading sequences (2); for now they are alternating 1 and -1,
+% but they become random thanks to the interleaving
+MAT_BASE = ones(2,Lspread);
+MAT_BASE(1,1:2:Lspread) = -1;
+MAT_BASE(2,2:2:Lspread) = -1;
+
+% Creation of the interleaving vector: used to randomize the 1s and -1s 
+% in the spreading sequence. If the watermarked file has already been created, 
+% the previously stored values are reloaded
+if exist(['marchiati/' Nome_file_data '.mat']) == 0     
+    a = rand(1,Lspread);
+    [sortv interl] = sort(a);
+    a2 = rand(1,Dati_code.K);
+    [sortv interl2] = sort(a2);
+else
+    load(['marchiati/' Nome_file_data]);
+end;
+
+
+max_indx = Dati_code.K;
+Dati_code.Keff = Dati_code.K+length(Dati_code.Pol_CRC)-1;
+indd = 0;
+coded_bits = [];
+
+while indd+Dati_code.K < length(MARCHIO)
+    data_orig = MARCHIO(indd+1:indd+Dati_code.K); % Bits embedded in each block  
+    % Insert parity bits on the scrambled bits to avoid regular patterns
+    % in the parity sequence
+    data = CRC_code_new_n1_mod(data_orig(interl2),length(data_orig)+length(Dati_code.Pol_CRC)-1,Dati_code.Pol_CRC.');
+    data(1:Dati_code.K) = data_orig;
+    % calcolo CRC ma non lo considero
+    data=data_orig;
+    %Inserimento dei bit di coda per la decodifica conv
+    data_pre = data;
+    data = [data zeros(1,Dati_code.constlen_p-1)];
+    [data_coded final_state] = convenc(data,Dati_code.t);
+    data_coded = reshape(data_coded,Dati_code.n,length(data_coded)/Dati_code.n);
+    punct_mat = repmat(Dati_code.punct_mat,1,ceil(size(data_coded,2)/size(Dati_code.punct_mat,2)));
+    punct_mat = punct_mat(:,1:size(data_coded,2));
+    indx = find(punct_mat == 0);
+    data_coded(indx) = -1;
+    data_coded = reshape(data_coded,1,numel(data_coded));
+    data_coded = data_coded(find(data_coded >= 0));
+    Nv = length(data_coded);
+    max_indx = max_indx + Dati_code.K;    
+    Dati_code.rate = Dati_code.K/Nv;
+    coded_bits = [coded_bits data_coded];
+    indd = indd+Dati_code.K;
+end
+%Offset in numero di campioni per iniziare la ricerca del sincronismo:
+%simula il fatto che sia casuale
+if exist(['modelli_PAFM/' Nome_file_psico '.mat']) > 0
+    load(['modelli_PAFM/' Nome_file_psico]);
+end
+for tr = 1:size(input_sound,2)
+    fprintf('Embedding track %d....\n',tr);
+    if exist(['modelli_PAFM/' Nome_file_psico '.mat']) == 0
+        [First_Frame original_sound output_sound(tr).vals Fs Ns_freq PSICO_ACOUSTIC(tr).vals] = marking_orthogonal_ABS_MCT_overlap(input_sound(:,tr),0,DATI_GEN.Fs,Ns_freq,Lspread,Fmin,Fmax,DATI_GEN.N,coded_bits,MAT_BASE,[],interl,ind_freqs_all,DATI_GEN.SOGLIA_PM);
+    else
+        [First_Frame original_sound output_sound(tr).vals Fs Ns_freq PSICO_ACOUSTIC(tr).vals] = marking_orthogonal_ABS_MCT_overlap(input_sound(:,tr),0,DATI_GEN.Fs,Ns_freq,Lspread,Fmin,Fmax,DATI_GEN.N,coded_bits,MAT_BASE,PSICO_ACOUSTIC(tr).vals,interl,ind_freqs_all,DATI_GEN.SOGLIA_PM);
+    end;
+    DWR(tr) = 10*log10(mean(input_sound(:,tr).^2)/mean((output_sound(tr).vals-input_sound(:,tr)).^2));
+    fprintf('DWR = %f dB\n',DWR(tr));
+end;
+if exist(['modelli_PAFM/' Nome_file_psico '.mat']) == 0
+    save(['modelli_PAFM/' Nome_file_psico],'PSICO_ACOUSTIC');
+end
+save(['marchiati/' Nome_file_data],'output_sound','interl','interl2','Dati_code');

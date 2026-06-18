@@ -1,0 +1,115 @@
+%clear workspace and figures
+clc;clear all;close all;
+global tq;
+global F;
+F=linspace(0,22050,256);
+tq=(3.64.*((F./1000).^-0.8))-(6.5.*exp(-0.6.*(F./(1000-3.3)).^2))+(10e-3.*((F./1000).^4));
+%variable declaration
+N = 512;
+hop = 1;
+n = 0:N-1;
+lbit_vector=[];
+rbit_vector=[];
+lbits=0;
+rbits=0;
+max_value=0;
+%read wav into local storage buffer
+pcm = wavread('orig_bts.wav');
+%separate channels into left/right vectors
+pcm_left = pcm(:,1);
+pcm_right = pcm(:,2);
+%calculate number of samples and frames
+num_samples = length(pcm);
+num_frames = num_samples/N;
+%allocate memory for output matrix
+output = zeros([num_samples,2]);
+%create window function and transpose
+w = sin((pi/N)*(n+1/2));
+w = w';
+fignum=1;
+rect=[940 450 500 400];
+a=figure('Name','Global Masking Curve','Position', rect);
+max_frame=0;
+max_val=0;
+while hop < num_samples-N/2 
+  cur_frame_l = pcm_left(hop:hop+N-1);
+  cur_frame_r = pcm_right(hop:hop+N-1);
+  left = cur_frame_l.*w;
+  right = cur_frame_r.*w;
+  %take fft
+fft_left = fft(left);
+%   if max(abs(fft_left))>max_val
+%       max_frame=fft_left;
+%       max_val=max(abs(fft_left));
+%       gmask_l=psychmodel(fft_left/N);
+%       max_mdct_left = fast_mdct(left);
+%   end
+fft_right = fft(right);
+%   %calculate global masking curves
+  gmask_l=psychmodel(fft_left/N);
+ 
+  gmask_r=psychmodel(fft_right/N);
+  %take mdct
+  mdct_left = fast_mdct(left);
+  [steps_l,numbits_l]=stepsize(gmask_l,mdct_left,fft_left);
+  mdct_right = fast_mdct(right);
+  [steps_r,numbits_r]=stepsize(gmask_r,mdct_right,fft_right);
+  q_left=mdct_quant(mdct_left,numbits_l);
+  q_right=mdct_quant(mdct_right,numbits_r);
+ 
+ lbits=lbits+numbits_l;
+ rbits=rbits+numbits_r;
+ lbit_vector=[lbit_vector numbits_l];
+ rbit_vector=[rbit_vector numbits_r];
+ %q_right=mdct_quant(mdct_right);
+  %take imdct
+imdct_left = fast_imdct(q_left);
+imdct_right = fast_imdct(q_right);
+  %take fft
+%   ifft_left = ifft(fft_left);
+%   ifft_right = ifft(fft_right);
+  %reapply window
+left = imdct_left.*w;
+right = imdct_right.*w;
+  %overlap and add left/right and update output
+output(hop:hop+N-1,1) = output(hop:hop+N-1,1) + left;
+output(hop:hop+N-1,2) = output(hop:hop+N-1,2) + right;
+  %increment hop pointer
+  hop = hop+N/2;
+  %processed=processed+1;
+end
+%generate plots
+close all;
+subplot(3,2,1);
+plot(1:num_samples,pcm(:,1));
+axis([0 3.2e5 -1 1]);
+title('Original Left Channel');
+subplot(3,2,2);
+plot(1:num_samples,pcm(:,2));
+axis([0 3.2e5 -1 1])
+title('Original Right Channel');
+subplot(3,2,3);
+plot(1:num_samples,output(:,1));
+axis([0 3.2e5 -1 1]);
+title('Reconstructed Left Channel');
+subplot(3,2,4);
+plot(1:num_samples,output(:,2));
+axis([0 3.2e5 -1 1]);
+title('Reconstructed Right Channel');
+%compute difference between orig & reconstructed
+diff = output-pcm;
+subplot(3,2,5);
+plot(1:num_samples,diff(:,1));
+axis([0 3.2e5 -1e-13 1e-13]);
+title('Difference Left Channel');
+subplot(3,2,6);
+plot(1:num_samples,diff(:,2));
+axis([0 3.2e5 -1e-13 1e-13]);
+title('Difference Right Channel');
+%write output to wav file
+wavwrite(output,44100,'quarterPE.wav');
+beep;
+pause(0.5);
+beep;
+pause(0.5);
+beep;

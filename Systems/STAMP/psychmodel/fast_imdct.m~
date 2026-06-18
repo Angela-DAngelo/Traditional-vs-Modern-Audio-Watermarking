@@ -1,0 +1,11 @@
+function y = fast_imdct(X)
+
+N=2*length(X);
+k=0:N-1;
+no=(N/4)+0.5;
+k=0:N-1;
+pretwiddle=exp(j.*2.*pi.*k'.*no./N);
+Z=X.*pretwiddle;
+z=ifft(Z);
+posttwiddle=exp(j.*pi.*(n'+no)./N);
+y=real(2.*z.*posttwiddle);
