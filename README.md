@@ -95,7 +95,8 @@ AudioWatermarking_AI_vs_Traditional/
 
 If you use or reference this work, please cite:
 
-XXXXXXXXXXXXXX
+"Model-Driven and Learning-Based Audio Watermarking: An Experimental Comparison", Angela D’Angelo, Andrea Abrardo, Roberto Caldelli, Mauro Barni.
+Multimedia Tools and Applications.
 
 
 ---
